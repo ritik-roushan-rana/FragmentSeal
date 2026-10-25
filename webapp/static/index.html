@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QLFW — Document Authentication</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Material 3 tonal palette. Icons are inline SVG so the page still works
+   with no network; only the typeface falls back. */
+:root{
+  --primary:#0b57d0; --on-primary:#fff;
+  --primary-container:#d3e3fd; --on-primary-container:#041e49;
+  --surface:#fff; --surface-dim:#f6f8fc;
+  --surface-container:#f0f4f9; --surface-container-high:#e9eef6;
+  --outline:#c4c7c5; --outline-variant:#e3e6ea;
+  --on-surface:#1f1f1f; --on-surface-variant:#444746;
+  --ok:#0b8043; --ok-container:#e6f4ea; --on-ok-container:#07371d;
+  --err:#c5221f; --err-container:#fce8e6; --on-err-container:#5c1210;
+  --warn:#e37400;
+  --r-card:28px; --r-md:16px; --r-pill:999px;
+  --shadow:0 1px 2px rgba(31,31,31,.06), 0 4px 14px rgba(31,31,31,.05);
+  --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--surface-dim);color:var(--on-surface);font:400 16px/1.6 var(--font);
+     -webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+
+/* top app bar */
+.bar{background:var(--surface);border-bottom:1px solid var(--outline-variant);
+     position:sticky;top:0;z-index:20}
+.bar .wrap{display:flex;align-items:center;gap:14px;height:68px}
+.mark{width:38px;height:38px;border-radius:12px;background:var(--primary);
+      display:grid;place-items:center;flex:none}
+.mark svg{width:21px;height:21px;fill:none;stroke:#fff;stroke-width:2;
+          stroke-linecap:round;stroke-linejoin:round}
+.bar h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.1px}
+.bar .sub{font-size:13px;color:var(--on-surface-variant)}
+
+/* hero */
+.hero{padding:52px 0 36px;text-align:center}
+.hero h2{margin:0 0 12px;font-size:40px;line-height:1.15;font-weight:600;
+         letter-spacing:-1px;max-width:760px;margin-inline:auto}
+.hero p{margin:0 auto;max-width:620px;font-size:17px;color:var(--on-surface-variant)}
+.chipbar{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+.chip{background:var(--surface-container-high);border-radius:var(--r-pill);
+      padding:7px 16px;font-size:13.5px;font-weight:500;color:var(--on-surface-variant)}
+
+/* step cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));
+      gap:22px;padding-bottom:72px;align-items:start}
+.card{background:var(--surface);border-radius:var(--r-card);padding:28px;
+      box-shadow:var(--shadow);border:1px solid var(--outline-variant)}
+.chead{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.step{width:34px;height:34px;border-radius:var(--r-pill);flex:none;
+      background:var(--primary-container);color:var(--on-primary-container);
+      display:grid;place-items:center;font-weight:700;font-size:15px}
+.chead h3{margin:0;font-size:19px;font-weight:600;letter-spacing:-.2px}
+.tag{font-size:12px;font-weight:500;color:var(--on-surface-variant);
+     background:var(--surface-container);padding:3px 10px;border-radius:var(--r-pill)}
+.lede{margin:0 0 20px;font-size:14.5px;color:var(--on-surface-variant)}
+
+/* drop zone */
+.drop{border:2px dashed var(--outline);border-radius:20px;padding:30px 18px;
+      text-align:center;cursor:pointer;background:var(--surface-container);
+      transition:background .18s,border-color .18s}
+.drop:hover,.drop.over{border-color:var(--primary);background:var(--primary-container)}
+.drop svg{width:28px;height:28px;stroke:var(--primary);fill:none;stroke-width:1.8;
+          stroke-linecap:round;stroke-linejoin:round;margin-bottom:8px}
+.drop strong{display:block;font-size:15px;font-weight:600}
+.drop span{font-size:13px;color:var(--on-surface-variant)}
+
+/* controls */
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:18px}
+button{font:600 15px var(--font);border:0;border-radius:var(--r-pill);
+       padding:12px 24px;cursor:pointer;background:var(--primary);color:var(--on-primary);
+       display:inline-flex;align-items:center;gap:8px;transition:box-shadow .18s,filter .18s}
+button:hover:not(:disabled){box-shadow:0 1px 3px rgba(11,87,208,.4),0 4px 12px rgba(11,87,208,.22)}
+button:disabled{background:var(--surface-container-high);color:#9aa0a6;cursor:not-allowed}
+button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;
+           stroke-linecap:round;stroke-linejoin:round}
+select,input[type=text]{font:400 14.5px var(--font);padding:11px 14px;color:var(--on-surface);
+  border:1px solid var(--outline);border-radius:var(--r-md);background:var(--surface);min-width:0}
+select:focus,input[type=text]:focus{outline:2px solid var(--primary);outline-offset:-2px}
+.picked{font-size:13px;color:var(--on-surface-variant);margin-top:12px;word-break:break-all}
+
+/* results */
+.verdict{display:flex;align-items:center;gap:16px;border-radius:20px;
+         padding:20px 22px;margin:20px 0 18px}
+.verdict.ok{background:var(--ok-container);color:var(--on-ok-container)}
+.verdict.bad{background:var(--err-container);color:var(--on-err-container)}
+.verdict svg{width:30px;height:30px;flex:none;fill:none;stroke-width:2.1;
+             stroke-linecap:round;stroke-linejoin:round}
+.verdict.ok svg{stroke:var(--ok)} .verdict.bad svg{stroke:var(--err)}
+.verdict .t{font-size:21px;font-weight:700;letter-spacing:-.3px;line-height:1.2}
+.verdict .d{font-size:14px;font-weight:500;opacity:.92;margin-top:3px}
+dl.facts{margin:0;display:grid;grid-template-columns:auto 1fr;gap:0;font-size:14px}
+dl.facts dt{padding:10px 0;color:var(--on-surface-variant);border-bottom:1px solid var(--outline-variant)}
+dl.facts dd{padding:10px 0;margin:0;text-align:right;font-weight:500;
+            border-bottom:1px solid var(--outline-variant);font-variant-numeric:tabular-nums}
+dl.facts code{font:500 13px ui-monospace,SFMono-Regular,Menlo,monospace;
+              background:var(--surface-container);padding:2px 7px;border-radius:7px}
+.shot{width:100%;border-radius:var(--r-md);border:1px solid var(--outline-variant);
+      margin-top:18px;display:block;background:#fff}
+.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:13px;
+        color:var(--on-surface-variant);margin-top:12px}
+.dot{width:11px;height:11px;border-radius:4px;display:inline-block;margin-right:7px;vertical-align:-1px}
+a.dl{display:inline-flex;align-items:center;gap:7px;font-size:14.5px;font-weight:600;
+     color:var(--primary);text-decoration:none;margin-top:16px;padding:9px 16px;
+     border-radius:var(--r-pill);background:var(--primary-container)}
+a.dl:hover{filter:brightness(.96)}
+a.dl svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;
+         stroke-linecap:round;stroke-linejoin:round}
+.alert{background:var(--err-container);color:var(--on-err-container);
+       border-radius:var(--r-md);padding:14px 16px;font-size:14px;margin-top:18px}
+.loading{display:flex;align-items:center;gap:11px;font-size:14px;
+         color:var(--on-surface-variant);margin-top:20px}
+.spin{width:17px;height:17px;border:2.5px solid var(--outline-variant);
+      border-top-color:var(--primary);border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.hint{font-size:13.5px;color:var(--on-surface-variant);margin:16px 0 0;
+      background:var(--surface-container);padding:13px 15px;border-radius:var(--r-md)}
+footer{border-top:1px solid var(--outline-variant);background:var(--surface);
+       padding:26px 0;font-size:13.5px;color:var(--on-surface-variant)}
+@media(max-width:560px){.hero h2{font-size:30px}.card{padding:22px}}
+</style>
+</head>
+<body>
+
+<div class="bar"><div class="wrap">
+  <div class="mark"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.2-2.8 7.6-7 9-4.2-1.4-7-4.8-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+  <div><h1>QLFW</h1><div class="sub">QR-Linked Fragmented Watermarking</div></div>
+</div></div>
+
+<div class="wrap">
+  <section class="hero">
+    <h2>Prove a document wasn't altered — and show exactly where</h2>
+    <p>An invisible watermark is split across the page, so every region is vouched for
+       by a different one. Edit anything, and the altered area lights up.</p>
+    <div class="chipbar">
+      <span class="chip">32 × 32 px fragments</span>
+      <span class="chip">HMAC-SHA256 tags</span>
+      <span class="chip">Merkle anchor in QR</span>
+      <span class="chip">Ed25519 signed</span>
+    </div>
+  </section>
+
+  <div class="grid">
+
+    <section class="card">
+      <div class="chead"><span class="step">1</span><h3>Protect</h3></div>
+      <p class="lede">Upload a certificate or any page. A watermark is embedded and a
+         signed QR anchor is attached below it.</p>
+      <div class="drop" id="dropP">
+        <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        <strong>Choose a file</strong>
+        <span>PNG, JPG, BMP, TIFF or PDF — or drag one here</span>
+      </div>
+      <input type="file" id="fileP" hidden accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.pdf">
+      <div class="row">
+        <select id="carrier">
+          <option value="dct">DCT — semi-fragile</option>
+          <option value="lsb">LSB — fragile</option>
+        </select>
+        <button id="btnP" disabled>
+          <svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.2-2.8 7.6-7 9-4.2-1.4-7-4.8-7-9V6z"/></svg>
+          Protect</button>
+      </div>
+      <div class="picked" id="nameP"></div>
+      <div id="outP"></div>
+    </section>
+
+    <section class="card">
+      <div class="chead"><span class="step">2</span><h3>Forge</h3><span class="tag">optional</span></div>
+      <p class="lede">Play the attacker. Edit the protected document and see whether
+         the system notices.</p>
+      <div class="row">
+        <input type="text" id="forgeText" value="VOID" maxlength="24" size="8">
+        <button id="btnF" disabled>
+          <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/></svg>
+          Forge a random spot</button>
+      </div>
+      <p class="hint"><strong>Or click anywhere on the protected image</strong> in
+         step 1 to forge that exact spot — let your audience pick. You can also edit
+         the downloaded file in any image editor and upload it in step 3.</p>
+      <div id="outF"></div>
+    </section>
+
+    <section class="card">
+      <div class="chead"><span class="step">3</span><h3>Verify</h3></div>
+      <p class="lede">The checker receives only the file and the key. It is never told
+         what changed, where, or whether anything did.</p>
+      <div class="drop" id="dropV">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <strong>Choose a file</strong>
+        <span>The protected or the forged document</span>
+      </div>
+      <input type="file" id="fileV" hidden accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.pdf">
+      <div class="row"><button id="btnV" disabled>
+        <svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg>
+        Verify</button></div>
+      <div class="picked" id="nameV"></div>
+      <div id="outV"></div>
+    </section>
+
+  </div>
+</div>
+
+<footer><div class="wrap">Runs entirely on this machine. The issuer key is created
+  once in <code>webapp/workspace/</code> and never leaves it.</div></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let previewScale = 1;
+
+const IC = {
+  ok:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>',
+  bad:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+  dl:'<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4"/><path d="M5 19h14"/></svg>',
+};
+
+function wireDrop(dropId, inputId, labelId, btnId){
+  const drop = $(dropId), input = $(inputId);
+  drop.onclick = () => input.click();
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over");
+    if (e.dataTransfer.files.length){ input.files = e.dataTransfer.files; input.onchange(); } };
+  input.onchange = () => {
+    const f = input.files[0];
+    $(labelId).textContent = f ? "Selected: " + f.name : "";
+    $(btnId).disabled = !f;
+  };
+}
+const busy = (el,msg) => el.innerHTML = `<div class="loading"><div class="spin"></div>${msg}</div>`;
+const fail = (el,msg) => el.innerHTML = `<div class="alert">${msg}</div>`;
+const facts = pairs => "<dl class='facts'>" +
+  pairs.map(([k,v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") + "</dl>";
+const dlLink = href => `<a class="dl" href="${href}" download>${IC.dl}Download</a>`;
+
+async function call(url, opts){
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({error:"the server returned no data"}));
+  if (!r.ok) throw new Error(d.error || `request failed (${r.status})`);
+  return d;
+}
+
+/* 1 — Protect */
+wireDrop("dropP","fileP","nameP","btnP");
+$("btnP").onclick = async () => {
+  const f = $("fileP").files[0]; if (!f) return;
+  const out = $("outP"); busy(out, "Embedding the watermark…"); $("btnP").disabled = true;
+  try {
+    const fd = new FormData(); fd.append("file", f); fd.append("carrier", $("carrier").value);
+    const d = await call("/api/protect", {method:"POST", body:fd});
+    const p = d.pages[0]; previewScale = d.preview_scale || 1;
+    out.innerHTML = facts([
+      ["Document ID", `<code>${p.doc_id}</code>`],
+      ["Fragments", `${p.fragments} <span style="color:var(--on-surface-variant)">(${p.grid})</span>`],
+      ["Image quality", p.psnr + " dB PSNR"],
+      ["Converged in", p.rounds + " round(s)"],
+      ["QR symbol", p.qr],
+    ]) + dlLink(d.download)
+       + `<img class="shot" id="shotP" src="${d.preview}" style="cursor:crosshair"
+               title="Click anywhere to forge that spot" alt="protected document">`;
+    $("shotP").onclick = ev => {
+      const r = ev.target.getBoundingClientRect();
+      const k = (ev.target.naturalWidth / r.width) * previewScale;
+      forge(Math.round((ev.clientX-r.left)*k), Math.round((ev.clientY-r.top)*k));
+    };
+    $("btnF").disabled = false;
+  } catch(e){ fail(out, e.message); }
+  $("btnP").disabled = false;
+};
+
+/* 2 — Forge */
+async function forge(x, y){
+  const out = $("outF");
+  busy(out, x == null ? "Editing a random region…" : "Editing the spot you picked…");
+  $("btnF").disabled = true;
+  try {
+    const body = {text: $("forgeText").value};
+    if (x != null){ body.x = x; body.y = y; }
+    const d = await call("/api/tamper", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    const [rx,ry,w,h] = d.rect;
+    out.innerHTML = facts([
+      ["Chosen by", d.chosen === "clicked" ? "you, by clicking" : "the computer, at random"],
+      ["Region", `x ${rx}, y ${ry}`],
+      ["Size", `${w} × ${h} px`],
+      ["Text written", `“${d.text}”`],
+    ]) + dlLink(d.download)
+       + `<img class="shot" src="${d.preview}" alt="forged document">`;
+    out.scrollIntoView({block:"nearest", behavior:"smooth"});
+  } catch(e){ fail(out, e.message); }
+  $("btnF").disabled = false;
+}
+$("btnF").onclick = () => forge(null, null);
+
+/* 3 — Verify */
+wireDrop("dropV","fileV","nameV","btnV");
+$("btnV").onclick = async () => {
+  const f = $("fileV").files[0]; if (!f) return;
+  const out = $("outV"); busy(out, "Recomputing every fragment…"); $("btnV").disabled = true;
+  try {
+    const fd = new FormData(); fd.append("file", f);
+    const d = await call("/api/verify", {method:"POST", body:fd});
+    out.innerHTML = d.pages.map(p => {
+      const ok = p.authentic;
+      const sig = p.signature_ok === true ? "from the expected issuer"
+                : p.signature_ok === false ? "not the expected issuer" : "not checked";
+      return `<div class="verdict ${ok?'ok':'bad'}">${ok?IC.ok:IC.bad}
+          <div><div class="t">${p.verdict.replace(/_/g," ")}</div>
+          <div class="d">${ok ? "Every one of " + p.fragments + " fragments checks out."
+                              : p.tampered + " of " + p.fragments + " fragments were altered."}</div>
+          </div></div>`
+        + facts([
+            ["Document ID", `<code>${p.doc_id}</code>`],
+            ["Fragments altered", `${p.tampered} / ${p.fragments} (${p.ratio}%)`],
+            ["Guardian fallout", p.fallout],
+            ["QR anchor", p.root_ok ? "matches" : "does not match"],
+            ["Issuer signature", sig],
+            ["Located at", p.cells.length
+                ? p.cells.slice(0,4).map(c=>`r${c[0]} c${c[1]}`).join(", ") : "—"],
+          ])
+        + `<img class="shot" src="${p.map}" alt="tamper map">`
+        + (ok ? "" : `<div class="legend">
+             <span><span class="dot" style="background:#dc2626"></span>edited region</span>
+             <span><span class="dot" style="background:#f59e0b"></span>guardian fallout</span>
+           </div>`);
+    }).join("<div style='height:28px'></div>");
+  } catch(e){ fail(out, e.message); }
+  $("btnV").disabled = false;
+};
+</script>
+</body>
+</html>

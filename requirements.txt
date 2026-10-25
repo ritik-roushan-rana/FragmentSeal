@@ -1,0 +1,12 @@
+numpy>=1.26
+pillow>=10.0
+qrcode>=7.4
+opencv-python-headless>=4.9
+pypdfium2>=4.25
+cryptography>=42.0
+
+# web interface (web.sh)
+flask>=3.0
+
+# tests
+pytest>=8.0

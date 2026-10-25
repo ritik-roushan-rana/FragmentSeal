@@ -1,339 +1,227 @@
-<h1 align="center">FragmentSeal</h1>
-<p align="center">
-  <strong>QR-Linked Fragmented Watermarking for Tamper-Evident Document Authentication</strong><br>
-  <sub>Fragment-level SHA-256 · Merkle-tree integrity proofs · ECDSA/RSA signatures · semi-fragile DWT watermarks</sub>
-</p>
+# QR-Linked Fragmented Watermarking for Tamper-Evident Document Authentication
 
----
-
-A full-stack platform for issuing and verifying authenticated PDF documents.
-
-Conventional verification hashes the whole file: one changed byte changes the hash, so you
-learn *that* a document was altered, never *what*. FragmentSeal splits each page into a grid
-of fragments, hashes every fragment independently, binds the hashes into a Merkle tree, signs
-the root, and publishes it through a QR code — so verification points at the **exact region**
-that was altered and draws it on the page.
+A document is watermarked so that every 32×32 pixel fragment carries a
+cryptographic authenticator **for a different fragment**, and a QR code printed
+on the page anchors the whole set to one signed commitment. Edit anything and
+the system does not merely say "this changed" — it says *where*.
 
 ```
- ┌──────────────┐     issue      ┌───────────────┐     verify     ┌──────────────┐
- │ original PDF │ ─────────────► │ secured PDF   │ ─────────────► │  verdict +   │
- │              │  fragment,     │ QR + invisible│  re-hash,      │  heatmap of  │
- │              │  hash, sign    │ watermarks    │  rebuild tree  │  what changed│
- └──────────────┘                └───────────────┘                └──────────────┘
+┌─ embed ─────────────────────────────────────────────────────────────────┐
+│  page ──► fragments ──► digest each ──► HMAC tag each ──► Merkle root   │
+│                                              │                  │       │
+│                              key-driven dispersal π             │       │
+│                                              ▼                  ▼       │
+│                                tag(i) hidden in fragment π(i)   QR code │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+## Why the pieces are there
 
-## Contents
+**Fragmented, not local.** Storing a fragment's authenticator inside itself
+makes forgery a local problem: edit the region, recompute its tag, write it
+back. Dispersing tag *i* into fragment *π(i)* — under a key-driven derangement —
+means repairing one edit corrupts another fragment, whose tag lives somewhere
+else again. Local forgery cascades into a document-wide one, which the secret
+key makes infeasible.
 
-- [Quick start](#quick-start) · [See it catch a forgery](#see-it-catch-a-forgery-60-seconds)
-- [Project structure](#project-structure) · [How it works](#how-it-works)
-- [Configuration](#configuration) · [Tests](#tests) · [Limits](#honest-limits)
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the full technical design
-- **[docs/API.md](docs/API.md)** — every endpoint
+**Position-bound tags.** Each tag is `HMAC(key, doc_id ‖ index ‖ digest)`.
+Copying a block from elsewhere on the same page carries an authenticator
+computed for the wrong index, so cut-and-paste is caught even though the pixels
+are genuine.
 
----
+**QR as the anchor, not the payload.** The QR holds a Merkle root over all
+tags plus an Ed25519 signature — about 130 bytes. It never holds the tags and
+never holds a key. A verifier reads it before touching a pixel, so replacing
+the whole page with a differently-watermarked one is caught by the root even
+though every fragment is internally consistent.
 
-## Quick start
+**The issuer's public key is deliberately absent from the QR.** A key carried
+by the document it signs attests to nothing: a forger re-signs with their own
+key and presents that. The verifier supplies the key it expects, so the
+question becomes *"is this from the issuer I trust"* — the one worth asking.
 
-**Requires** Python 3.12+ and Node 20+.
+## Install
 
 ```bash
-./scripts/setup.sh    # venv, dependencies, env files, demo data
-./scripts/dev.sh      # runs the API and the web app together
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-Or with `make`:
+## Use
 
 ```bash
-make setup
-make dev
-```
-
-| | URL |
-| --- | --- |
-| Web app | **http://localhost:3000** |
-| API | http://127.0.0.1:8000 |
-| Interactive API docs | http://127.0.0.1:8000/docs |
-
-**Demo accounts**, created by the seeder:
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin (issuer) | `admin@docauth.dev` | `Admin@12345` |
-| Verifier | `verifier@docauth.dev` | `Verify@12345` |
-
-<details>
-<summary><strong>Manual setup</strong>, if you would rather not use the scripts</summary>
-
-```bash
-# Backend
-cd backend
-python3.12 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env
-.venv/bin/python -m app.seed --documents        # schema + demo users + 2 sample documents
-.venv/bin/python -m uvicorn app.main:app --reload --port 8000
+.venv/bin/python -m qlfw keygen --out issuer.key
 ```
 
 ```bash
-# Frontend, in a second terminal
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
-```
-</details>
-
-### Other commands
-
-| Command | Does |
-| --- | --- |
-| `make test` | backend test suite, then frontend types, lint and production build |
-| `make backend` / `make frontend` | run one side only |
-| `make seed` | re-seed demo accounts and sample documents |
-| `make reset` | wipe the database and stored files, then re-seed |
-| `make clean` | remove caches, `node_modules` and the venv |
-
----
-
-## See it catch a forgery (60 seconds)
-
-1. Sign in as the admin and open **Document register → academic-transcript.pdf**
-2. Go to the **Tamper sandbox** tab, choose *Replace the text in a cell*, pick a cell, and
-   download the altered copy.
-   *(The issued document is never touched — the sandbox writes a copy, and every use is audited.)*
-3. Open **Verify document** and upload that copy
-4. The report comes back:
-
-```
-verdict: TAMPERED      tamper score: 24.6 / 100
-signature: VALID       merkle: MISMATCH       watermark: VALID
-fragments: 11 intact · 1 modified · 0 missing · 0 added
-  → page 1, cell 6: text content differs; rendered pixels differ;
-    embedded watermark marker does not match recomputed text
+.venv/bin/python -m qlfw embed samples/certificate.png out/certificate.wm.png --keyfile issuer.key --note "NGU-2022-04417"
 ```
 
-with that one cell shaded red on the rendered page, its issued and recomputed hashes side by
-side, and the Merkle audit path for the failing leaf.
-
-Note what the verdict says: the **signature is still valid**. The attacker edited the body and
-could not re-sign it — which is exactly the signature of tampering, and why fragment hashing
-is needed on top of a signature.
-
-Try *Redact a cell with a solid block* too: no text changes at all, and it is still caught —
-that is the raster digest doing its job.
-
----
-
-## Project structure
-
-```
-.
-├── README.md                    you are here
-├── Makefile                     make setup | dev | test | seed | reset | clean
-├── docs/
-│   ├── ARCHITECTURE.md          full technical design, diagrams, threat model
-│   └── API.md                   endpoint reference
-├── scripts/
-│   ├── setup.sh                 one-time install + seed
-│   ├── dev.sh                   run both servers together
-│   └── test.sh                  all checks
-│
-├── backend/                     FastAPI + SQLAlchemy
-│   ├── app/
-│   │   ├── main.py              app factory, CORS, startup
-│   │   ├── seed.py              schema + demo accounts + sample documents
-│   │   ├── core/
-│   │   │   ├── config.py        settings (grid size, DPI, DWT params, weights)
-│   │   │   └── security.py      JWT issue/verify, bcrypt
-│   │   ├── db/
-│   │   │   ├── models.py        6 tables
-│   │   │   └── session.py       engine + session factory
-│   │   ├── schemas/             Pydantic request/response models
-│   │   ├── services/            ← the system lives here
-│   │   │   ├── fragmenter.py    PDF → grid cells, text + raster digests
-│   │   │   ├── merkle.py        tree, root, inclusion proofs
-│   │   │   ├── signing.py       key registry, ECDSA + RSA sign/verify
-│   │   │   ├── watermark.py     DWT (QIM) embed + extract
-│   │   │   ├── qr.py            payload encode, render, multi-scale decode
-│   │   │   ├── pdf_builder.py   marker + footer stamping, manifest, extraction
-│   │   │   ├── protection.py    the issuance pipeline
-│   │   │   ├── verifier.py      the verification engine
-│   │   │   ├── tamper_sim.py    tamper sandbox for demos and tests
-│   │   │   ├── report.py        PDF verification report + e-mail
-│   │   │   ├── sample_docs.py   demo certificate / transcript generators
-│   │   │   └── audit.py         append-only audit logging
-│   │   └── api/
-│   │       ├── deps.py          current user, role guards, client IP
-│   │       └── routes/          auth · documents · verify · dashboard · audit
-│   ├── tests/                   42 unit + integration tests
-│   ├── storage/                 runtime files (gitignored, created on startup)
-│   │   ├── uploads/  secured/  qr/  reports/  keys/
-│   └── requirements.txt
-│
-└── frontend/                    Next.js + TypeScript + Tailwind
-    └── src/
-        ├── app/
-        │   ├── (site)/          home · about · verify · scan · history · result
-        │   ├── (auth)/          login · register
-        │   └── admin/           dashboard · upload · register · detail
-        │                        analytics · audit-logs · users
-        ├── components/
-        │   ├── ui/              button, card, badge, input, table, modal, tabs
-        │   ├── layout/          header, footer, admin shell, theme toggle
-        │   ├── charts/          Recharts wrappers, themed via CSS variables
-        │   └── verification/    verdict banner, tamper heatmap, fragment table,
-        │                        Merkle + watermark panels, timeline, upload zone
-        └── lib/
-            ├── api.ts           typed client with silent token refresh
-            ├── auth.tsx         session context + role guards
-            ├── use-api.ts       data-loading hooks
-            └── types.ts         the API contract in TypeScript
+```bash
+.venv/bin/python -m qlfw verify out/certificate.wm.png --keyfile issuer.key --map out/tampermap.png
 ```
 
----
+`verify` exits 0 only for `AUTHENTIC`, so it drops straight into a pipeline.
+Add `--json` for a machine-readable report naming the tampered fragments.
 
-## How it works
+## The demo website
 
-Short version here; the full treatment with diagrams is in
-**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+The easiest way to show the scheme to someone:
 
-### Issuing
+```bash
+./web.sh
+```
 
-| Step | What happens |
-| --- | --- |
-| **1. Fragment** | Each page's content area is split into a 6×2 grid. The bottom 96pt is a *reserved footer band*, excluded from fragmentation. |
-| **2. Hash text** | Per cell: `SHA-256(page \| cell \| normalised text)`, rebuilt from character positions rather than word grouping. |
-| **3. Stamp markers** | `<WM\|6\|a3f09c12d4e5>` at 2pt in 96% grey goes inside every cell, carrying that cell's own text hash. |
-| **4. Hash pixels** | The marked PDF is rendered at 100 dpi; each cell is cropped, quantised to 16 grey levels and hashed. |
-| **5. Merkle tree** | `fragment_hash = SHA-256(text_hash \| raster_hash)` are the leaves; the tree folds them to one root. |
-| **6. Sign** | Only the root is signed — ECDSA P-256 by default. |
-| **7–9. Publish** | ID + root + timestamp + signature into a QR; 128 bits of the root into a DWT watermark carrier; both stamped into the footer band, with the full manifest written into the PDF metadata. |
+It opens `http://127.0.0.1:5005` with three steps — **Protect** a document,
+**Forge** it, **Verify** it. The verdict appears as a green or red badge with
+the tamper map rendered underneath.
 
-**The circular dependency.** The QR must contain the root, but putting the QR on the page
-changes the page, which changes the root. The reserved footer band resolves it: fragments
-never cover that band, so the stamp can be added after hashing. Markers face the same problem
-in miniature and are solved with two passes — markers carry only the text hash (computed
-before stamping), and raster hashes are computed after.
+The forgery step is deliberately not rigged: either the computer picks the
+region at random, or you click the spot on the protected image and it forges
+exactly there. Verification receives only the file and the key either way.
+Everything runs on localhost; the issuer key is generated on first run into
+`webapp/workspace/`.
 
-**Why two digests.** Text hashing catches edited words; raster hashing catches edited images,
-forged signatures and solid-block redactions that leave the text layer untouched. Together
-they cover both kinds of forgery.
+## Demonstrating it from the terminal
 
-### Verifying
+`./present.sh` walks through the whole argument in seven steps, pausing between
+each. It takes any document you give it, so the audience can supply their own:
 
-Four independent questions, fused into one verdict:
+```bash
+./present.sh ~/their-document.pdf
+```
 
-| | Question | How |
-| --- | --- | --- |
-| **Provenance** | Who issued this? | Decode the QR from the footer (retried at several DPIs), fall back to the embedded manifest, resolve the ID against the register |
-| **Authority** | Did they sign it? | Verify the signature over the claimed root against every registered key |
-| **Integrity** | Is it still what they signed? | Re-fragment, re-hash, rebuild the tree, compare roots — then compare leaf by leaf |
-| **Watermark** | Is the stamp genuine? | Decode the DWT payload; check each cell's marker against its recomputed text hash |
+Nothing about the attack is fixed. Step 6 hands the watermarked file back and
+invites the audience to edit it in any tool they like; if they decline, a
+target is chosen **at random at run time** instead. The verifier is never told
+what changed, where, or that anything did — it receives only the file and the
+key. `--rect random` is available on `tamper` directly, with `--seed` when you
+need a run to be reproducible.
+
+`./demo.sh` is the same story without the pauses, for a quick check.
+
+Simulate an attack to see localization work:
+
+```bash
+.venv/bin/python -m qlfw tamper out/certificate.wm.png out/forged.png --mode text --rect 325,492,230,34 --text "9.94 / 10.00"
+```
+
+```bash
+.venv/bin/python -m qlfw verify out/forged.png --keyfile issuer.key --map out/tampermap.png --grid
+```
+
+```
+TAMPERED  localised edits detected
+  merkle anchor : does NOT match QR
+  issuer signature: valid
+  fragments     : 15/1280 tampered (1.2%) [........................]
+  guardian fallout: 15 fragment(s) flagged by dispersal, not themselves edited
+  worst fragment: row 15, col 10 (27/36 bit errors)
+```
+
+The map tints the located edit **red** and guardian fallout **amber**. Other
+commands: `inspect` (decode a QR manifest without the secret key), and
+`--carrier lsb` for the fragile variant.
+
+PDFs work the same way; pages are rasterised, watermarked, and written back as
+a lossless multi-page PDF, one manifest and QR per page.
+
+## Verdicts
 
 | Verdict | Meaning |
 | --- | --- |
-| `authentic` | Every fragment reproduces its issued hash; root, signature and watermark all check out |
-| `tampered` | The signature is **genuine** but the content no longer hashes to the signed root — affected regions are reported with coordinates |
-| `invalid` | The signature validates against no registered key |
-| `revoked` | Cryptographically intact, but withdrawn by the issuer |
-| `unknown` | The file carries no verification data — not "fake", simply nothing to compare against |
+| `AUTHENTIC` | Root matches, every fragment checks out, signature from the expected issuer. |
+| `TAMPERED` | Some fragments fail. The map says which. |
+| `UNTRUSTED_ANCHOR` | The anchor is not signed by the expected issuer — a forged QR, or the wrong key file. The report says which is likelier. |
+| `WRONG_KEY_OR_REPLACED` | Every fragment fails — wrong key, or a different document. |
+| `UNVERIFIABLE` | Geometry no longer matches; fragment alignment is lost. |
 
-```
-tamper_score = 100 × ( 0.55 × damaged_fragments/total
-                     + 0.20 × merkle_mismatch
-                     + 0.15 × signature_failure
-                     + 0.10 × watermark_failure )
-```
+`signature_ok` is three-valued. `None` means the question was never asked —
+unsigned document, or no issuer key supplied — and is never reported as a pass.
 
----
+## Carriers
 
-## Features
-
-**Admin (issuer)** — JWT login · single and bulk PDF protection · document register with
-search and filters · per-document detail with page preview, fragment grid overlay, QR stamp
-and full hash table · revoke and reinstate · tamper sandbox · analytics with tamper hotspots ·
-audit trail · user and signing-key management
-
-**Verifier** — upload a PDF (no account needed) · camera QR scanner with photo and paste
-fallbacks · full report: verdict, tamper score, QR payload, signature check, Merkle rebuild
-with inclusion proof, watermark bit-error rate, per-fragment analysis · interactive tamper
-heatmap over the submitted pages · downloadable PDF report · e-mail delivery · verification
-history
-
----
-
-## Configuration
-
-Backend — `backend/.env`, template in [`.env.example`](backend/.env.example):
-
-| Variable | Default | Notes |
+| | `dct` (default) | `lsb` |
 | --- | --- | --- |
-| `DATABASE_URL` | `sqlite:///./storage/docauth.db` | PostgreSQL: `postgresql+psycopg2://user:pass@localhost:5432/qrwatermark` |
-| `JWT_SECRET` | dev placeholder | **Change before deploying.** |
-| `SIGN_ALGORITHM` | `ES256` | or `RSA-PSS-SHA256` |
-| `FRAGMENT_ROWS` / `FRAGMENT_COLS` | `6` / `2` | finer grid = finer localisation, more hashes |
-| `FOOTER_BAND_PT` | `96` | reserved band, excluded from hashing |
-| `RASTER_DPI` | `100` | render resolution for raster digests |
-| `ENABLE_RASTER_HASH` | `true` | `false` = text-only hashing |
-| `DWT_WAVELET` / `DWT_ALPHA` / `DWT_BITS` | `haar` / `12` / `128` | watermark parameters |
-| `MAX_UPLOAD_MB` | `25` | |
-| `SMTP_*` | empty | optional; enables e-mailing verification reports |
+| Domain | Mid-band DCT, QIM | Bit 0 of the last channel |
+| Fragility | Semi-fragile | Fragile |
+| Survives | JPEG down to q92; additive noise to σ≈1 | Nothing; any re-encode fails |
+| Colour | Converts to grayscale | Authenticates all channels |
+| PSNR | ≈29 dB | ≈63 dB |
+| Use for | Scanned or re-encoded documents | Born-digital documents never re-encoded |
 
-Frontend — `frontend/.env.local`: `NEXT_PUBLIC_API_BASE`, the browser-visible backend origin.
+## Two problems worth knowing about
 
-### PostgreSQL
+**The scheme has to close on itself.** A fragment's tag depends on its content,
+but that content is where some *other* fragment's tag is written. The split is
+made explicit: the digest reads only DC and the lowest AC coefficients, the
+payload only mid-band ones, and the digest coefficients are snapped onto a
+quantisation lattice at embed time so the uint8 round-trip cannot move them
+into a neighbouring bucket. `embed` then iterates to a genuine fixed point and
+reads the digests back from the *rendered* image — the document that ships is
+one that has been verified against itself, not one assumed consistent. If it
+cannot converge, it refuses to write a file.
 
-The schema is portable; SQLite is the default only so the stack runs with no setup.
+**A document page is almost all saturated white.** A saturated block has no
+room to be modulated: the clip back to `uint8` simply erases the payload. The
+first working version lost 11% of its payload bits this way. The tonal range
+is therefore compressed by one QIM step at each end before embedding, which is
+what buys the headroom back — and what costs the `dct` carrier its PSNR,
+since the background sits a shade off pure white. That shift, not the
+watermark, is most of the 29 dB.
 
-```bash
-createdb qrwatermark
-# then in backend/.env:
-DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@localhost:5432/qrwatermark
+## Limits
+
+* **The `dct` carrier's robustness is narrow, and JPEG tolerance does not
+  imply noise tolerance.** At the default `--strength 8` it is clean through
+  JPEG q92 but only to additive Gaussian noise of σ≈1; by σ=1.5 most of the
+  page is flagged. `--strength 16` moves those to q90 and σ≈2 at the cost of
+  PSNR (29 dB → 24 dB). Past either limit it fails loudly
+  (`WRONG_KEY_OR_REPLACED`) rather than producing a plausible-looking partial
+  tamper map — but a page flagged end to end means "could not verify", not
+  "forged everywhere".
+* **PDF density must be 72·2^k** (72/144/288/576 DPI). At any other value the
+  page box is a fractional number of points, pdfium's raster comes back a pixel
+  off, and the resampling destroys the watermark. Other values are snapped.
+* **Localization trades precision for recall.** When a fragment fails it may be
+  innocent — its guardian was the thing edited. The refinement keeps only
+  fragments whose guardian relationship is consistent with them being the
+  edited one, which strips most of that halo but cannot strip all of it:
+  if an edited fragment's own guardian was *also* inside the edit, a third
+  fragment is promoted. Measured over 400 random keys on a 4-fragment edit,
+  the edit was never missed, strays averaged 0.2 and never exceeded 2. Red is
+  high-precision, amber is "look here too"; neither is exact.
+* **Verification needs the secret key.** The Ed25519 signature gives public
+  *attribution* of the anchor; authenticating the pixels needs the HMAC key.
+  True public verifiability would need a different construction.
+* **Geometric attacks are out of scope.** Rotation, cropping and rescaling
+  destroy fragment alignment; those report `UNVERIFIABLE`, not `AUTHENTIC`.
+* **Print-and-scan is not supported.** The `dct` carrier tolerates mild
+  recompression, not a trip through a printer and a scanner.
+
+## Layout
+
 ```
-
-Re-run `make seed`. Tables are created on startup; Alembic is installed if you prefer managed
-migrations.
-
-### Optional: pyzbar
-
-QR decoding uses OpenCV's detector. `pyzbar` is used as a second decoder when the native
-library is present (`brew install zbar`) — everything works without it.
-
----
+qlfw/
+  config.py     scheme parameters, carried in the QR
+  crypto.py     HMAC tags, the dispersal derangement, Merkle root, Ed25519
+  transform.py  vectorised 8×8 DCT and fragment tiling
+  carriers.py   DCT-QIM and LSB carriers; the digest/payload split lives here
+  manifest.py   the packed binary QR record, and the self-validating renderer
+  pipeline.py   embed (fixed-point) and verify (localisation)
+  docio.py      images, PDF rasterisation, QR attachment
+  pdfwrite.py   lossless image-per-page PDF writer
+  report.py     tamper-map overlay and console output
+  tamper.py     attack simulation, for demos and tests
+  cli.py        the command line
+tests/          59 tests: crypto, manifest/QR, pipeline, CLI, PDF round-trip
+```
 
 ## Tests
 
 ```bash
-make test
+.venv/bin/python -m pytest tests -q
 ```
 
-**42 backend tests.** The crypto suite covers the Merkle tree (inclusion proofs across tree
-shapes, domain separation, order sensitivity, single-leaf change) and the watermark (round
-trip, wrong key, semi-fragile under Gaussian noise, destroyed by overwrite). The integration
-suite drives the real HTTP API: issuance, authentic verification, optical QR recovery from the
-printed stamp, a text edit **localised to the exact cell**, redaction with no text change,
-footer stripping, page removal, unprotected files, revocation and reinstatement, role
-enforcement, dashboards and the audit trail.
-
-The frontend is checked with `tsc --noEmit`, ESLint and a production `next build`.
-
----
-
-## Honest limits
-
-- Localisation is to a grid cell, not a word. The grid is configurable.
-- Raster digests are reproducible because issuance and verification render with the same
-  library version. After a renderer upgrade they would need recomputing; text digests are
-  unaffected. `ENABLE_RASTER_HASH=false` removes the coupling, at the cost of missing
-  image-only edits.
-- Print-and-rescan is out of scope — that channel destroys both the raster digest and the DWT
-  payload. Verification operates on the digital file.
-- Text at or below 3pt is treated as marker ink and excluded from text hashing; it is still
-  covered by the raster digest.
-- The embedded-manifest fallback proves internal consistency, not that the authority issued the
-  document. Reports label which baseline was used.
-- ECDSA is the default because a 2048-bit RSA signature pushes the QR to 105 modules
-  (0.18 mm each at the stamped size), which no phone camera can read. RSA-PSS is implemented
-  and tested, and selectable.
+The suite pins the claims this README makes, including the JPEG breakdown
+point and the PDF raster round-trip being bit-exact — both are places where a
+regression would quietly produce false verdicts rather than fail loudly.

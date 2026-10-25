@@ -1,27 +1,11 @@
-# --- Python ---
-backend/.venv/
+
+.venv/
 __pycache__/
-*.py[cod]
-.pytest_cache/
-
-# --- Runtime storage ---
-# Uploads, secured PDFs, QR images, reports, signing keys and the SQLite
-# database. Recreated on startup; seed with `make seed`.
-backend/storage/
-
-# --- Environment (secrets) ---
-.env
-.env.local
-!.env.example
-
-# --- Node / Next.js ---
+*.pyc
+out/
+doc/ql/
+doc/render.pdf
+webapp/workspace/
 node_modules/
-frontend/.next/
-frontend/out/
-next-env.d.ts
-*.tsbuildinfo
-
-# --- Editors / OS ---
+*.key
 .DS_Store
-.idea/
-.vscode/
